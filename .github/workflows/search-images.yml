@@ -1,0 +1,41 @@
+name: Launch Site Bildersuche
+
+on:
+  workflow_dispatch:
+    inputs:
+      site_name:
+        description: 'Name der Launch Site (z.B. "Peenemünde Prüfstand VII")'
+        required: true
+        default: 'Peenemünde Prüfstand VII'
+      max_images:
+        description: 'Maximale Anzahl Bilder (z.B. 50)'
+        required: false
+        default: '50'
+
+jobs:
+  search:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+    - name: Install dependencies
+      run: |
+        pip install duckduckgo-search requests pillow
+    - name: Search and Download Images
+      run: |
+        python scripts/search_images.py "${{ github.event.inputs.site_name }}" "${{ github.event.inputs.max_images }}"
+    - name: Upload Images as Artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: launch-site-images
+        path: References/
+    - name: Commit to Repo
+      run: |
+        git config --global user.name 'GitHub Actions'
+        git config --global user.email 'actions@github.com'
+        git add References/
+        git commit -m "Added images for ${{ github.event.inputs.site_name }}" || echo "No changes"
+        git push
