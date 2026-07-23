@@ -1,0 +1,60 @@
+name: Generiere Blender-Skript und Daten
+
+on:
+  workflow_dispatch:
+    inputs:
+      site_name:
+        description: 'Name der Launch Site'
+        required: true
+        default: 'Peenemünde Prüfstand VII'
+      wikipedia_url:
+        description: 'Wikipedia URL (optional)'
+        required: false
+        default: ''
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+    
+    - name: Install dependencies
+      run: |
+        pip install wikipedia beautifulsoup4 requests
+    
+    - name: Get Wikipedia Data
+      run: |
+        python -c "import wikipedia, re, json, sys, os; site_name=sys.argv[1]; wikipedia_url=sys.argv[2] if len(sys.argv) > 2 else ''; dimensions={'height': None, 'diameter': None}; try: if wikipedia_url: page=wikipedia.page(wikipedia_url.split('/')[-1], auto_suggest=False); else: page=wikipedia.page(wikipedia.search(site_name, results=3)[0], auto_suggest=False); for p in [r'height[:\\s]+(\\d+(?:\\.\\d+)?)\\s*(m|meter)', r'Höhe[:\\s]+(\\d+(?:\\.\\d+)?)\\s*m']: m=re.search(p, page.content, re.IGNORECASE); if m: dimensions['height']=float(m.group(1)); break; for p in [r'diameter[:\\s]+(\\d+(?:\\.\\d+)?)\\s*(m|meter)', r'Durchmesser[:\\s]+(\\d+(?:\\.\\d+)?)\\s*m']: m=re.search(p, page.content, re.IGNORECASE); if m: dimensions['diameter']=float(m.group(1)); break; os.makedirs('Data', exist_ok=True); with open('Data/dimensions.json', 'w') as f: json.dump(dimensions, f, indent=2); except: pass"
+      env:
+        site_name: ${{ github.event.inputs.site_name }}
+        wikipedia_url: ${{ github.event.inputs.wikipedia_url }}
+    
+    - name: Generate Blender Script
+      run: |
+        python -c "import requests, json, os, sys; site_name=sys.argv[1]; hf_token=sys.argv[2]; dimensions={}; if os.path.exists('Data/dimensions.json'): with open('Data/dimensions.json', 'r') as f: dimensions=json.load(f); prompt=f'Erstelle ein Blender-Python-Skript fuer {site_name} mit Hoehe {dimensions.get('height', 'unbekannt')}m und Durchmesser {dimensions.get('diameter', 'unbekannt')}m. Gib NUR den Code zurueck.'; response=requests.post('https://api-inference.huggingface.co/models/Qwen/Qwen2.5-7B-Instruct', headers={'Authorization': f'Bearer {hf_token}'}, json={'inputs': prompt}); script=response.json()[0]['generated_text'].replace('```python', '').replace('```', '').strip(); os.makedirs('Scripts', exist_ok=True); with open(f'Scripts/blender_{site_name.replace(' ', '_').replace('/', '_')}.py', 'w') as f: f.write(script); print(f'✓ Skript gespeichert')"
+      env:
+        site_name: ${{ github.event.inputs.site_name }}
+        hf_token: ${{ secrets.HF_TOKEN }}
+    
+    - name: Upload Complete Package
+      uses: actions/upload-artifact@v4
+      with:
+        name: launch-site-package
+        path: |
+          References/
+          Data/
+          Scripts/
+    
+    - name: Commit to Repo
+      run: |
+        git config --global user.name 'GitHub Actions'
+        git config --global user.email 'actions@github.com'
+        git add Data/ Scripts/
+        git commit -m "Generated data and scripts for ${{ github.event.inputs.site_name }}" || echo "No changes"
+        git push
