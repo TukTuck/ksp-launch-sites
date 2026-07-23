@@ -1,0 +1,51 @@
+name: Launch Site Bildersuche
+
+on:
+  workflow_dispatch:
+    inputs:
+      site_name:
+        description: 'Name der Launch Site (z.B. "Peenemünde Prüfstand VII")'
+        required: true
+        default: 'Peenemünde Prüfstand VII'
+      max_images:
+        description: 'Maximale Anzahl Bilder (z.B. 50)'
+        required: false
+        default: '50'
+
+jobs:
+  search:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+    
+    - name: Install dependencies
+      run: |
+        pip install duckduckgo-search requests pillow
+    
+    - name: Search and Download Images
+      run: |
+        python -c "from duckduckgo_search import DDGS; import os, requests, sys; from PIL import Image; from io import BytesIO; site_name=sys.argv[1]; max_images=int(sys.argv[2]); safe_name=site_name.replace(' ', '_').replace('/', '_'); os.makedirs(f'References/{safe_name}', exist_ok=True); results=DDGS().images(site_name, max_results=max_images); downloaded=0; for i, result in enumerate(results): try: response=requests.get(result['image'], timeout=10); img=Image.open(BytesIO(response.content)); if img.width < 512 or img.height < 512: continue; filename=f'References/{safe_name}/{i:03d}_{img.width}x{img.height}.jpg'; img.save(filename, 'JPEG', quality=95); downloaded+=1; except: pass; print(f'\\n✅ Fertig! {downloaded} Bilder gespeichert')"
+      shell: bash
+      env:
+        site_name: ${{ github.event.inputs.site_name }}
+        max_images: ${{ github.event.inputs.max_images }}
+    
+    - name: Upload Images as Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: launch-site-images
+        path: References/
+    
+    - name: Commit to Repo
+      run: |
+        git config --global user.name 'GitHub Actions'
+        git config --global user.email 'actions@github.com'
+        git add References/
+        git commit -m "Added images for ${{ github.event.inputs.site_name }}" || echo "No changes"
+        git push
