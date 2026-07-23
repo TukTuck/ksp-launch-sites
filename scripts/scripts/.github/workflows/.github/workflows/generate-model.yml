@@ -1,0 +1,51 @@
+name: Generiere Blender-Skript und Daten
+
+on:
+  workflow_dispatch:
+    inputs:
+      site_name:
+        description: 'Name der Launch Site'
+        required: true
+        default: 'Peenemünde Prüfstand VII'
+      wikipedia_url:
+        description: 'Wikipedia URL (optional, leer lassen)'
+        required: false
+        default: ''
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: pip install wikipedia beautifulsoup4 requests
+
+      - name: Get Wikipedia Data
+        run: python scripts/get_wikipedia_data.py "${{ github.event.inputs.site_name }}" "${{ github.event.inputs.wikipedia_url }}"
+
+      - name: Generate Blender Script
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: python scripts/generate_blender_script.py "${{ github.event.inputs.site_name }}" "$HF_TOKEN"
+
+      - name: Upload Package
+        uses: actions/upload-artifact@v4
+        with:
+          name: launch-site-package
+          path: |
+            Data/
+            Scripts/
+
+      - name: Commit to Repo
+        run: |
+          git config --global user.name 'GitHub Actions'
+          git config --global user.email 'actions@github.com'
+          git add Data/ Scripts/
+          git commit -m "Generated data and scripts" || echo "No changes"
+          git push
